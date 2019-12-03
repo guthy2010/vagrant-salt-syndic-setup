@@ -1,0 +1,178 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+require 'vagrant-host-shell'
+
+Vagrant.configure("2") do |config|
+    # Load custom vbguest installer
+    if defined?(VagrantVbguest::Installers::Debian)
+        require_relative 'utility/vbg-installer'
+        config.vbguest.installer = Utility::DebianCustom
+    end
+
+  # Configure salt master
+  config.vm.define "mastermaster", autostart: true do |mastermaster|
+    # Set timeout to a higher value
+    mastermaster.vm.boot_timeout = 120
+
+    # Seed all files locally before bringing master and minions up
+    mastermaster.vm.provision :host_shell do |host_shell|
+      host_shell.inline = 'salt-key -u $USER --gen-keys-dir=files/keys/ --gen-keys=mastermaster &&
+                        salt-key -u $USER --gen-keys-dir=files/keys/ --gen-keys=devmaster &&
+                        salt-key -u $USER --gen-keys-dir=files/keys/ --gen-keys=prodmaster &&
+                        salt-key -u $USER --gen-keys-dir=files/keys/ --gen-keys=devminion1 &&
+                        salt-key -u $USER --gen-keys-dir=files/keys/ --gen-keys=prodminion1'
+    end
+
+     mastermaster.vm.box = "debian/stretch64"
+     mastermaster.vm.box_version = "9.3.0"
+     mastermaster.vm.host_name = "mastermaster"
+     mastermaster.vbguest.auto_update = true
+
+    # Link local salt files into master
+     mastermaster.vm.synced_folder "files/salt/masters/", "/srv/salt"
+     mastermaster.vm.synced_folder "files/pillar/masters/", "/srv/pillar"
+     mastermaster.vm.synced_folder "files/formulas/", "/srv/formulas"
+     mastermaster.vm.network "private_network", ip: "192.168.200.10"
+
+    mastermaster.vm.provision :salt do |salt|
+      salt.master_config = "files/etc/master-master/master"
+      salt.minion_config = "files/etc/master-master/minion"
+      salt.master_key = "files/keys/mastermaster.pem"
+      salt.master_pub = "files/keys/mastermaster.pub"
+      salt.minion_key = "files/keys/mastermaster.pem"
+      salt.minion_pub = "files/keys/mastermaster.pub"
+      salt.seed_master = {
+        "mastermaster" => "files/keys/mastermaster.pub",
+        "devmaster" => "files/keys/devmaster.pub",
+        "prodmaster" => "files/keys/prodmaster.pub"
+      }
+
+      salt.install_master = true
+      salt.install_type = "stable"
+      salt.no_minion = false
+      salt.verbose = true
+      salt.colorize = true
+      salt.run_highstate = true
+      salt.install_args = "2017.7"
+    end
+  end
+
+  # Configure devmaster
+  config.vm.define "devmaster", autostart: true do |devmaster|
+
+    devmaster.vm.boot_timeout = 120
+    devmaster.vm.box = "debian/stretch64"
+    devmaster.vm.box_version = "9.3.0"
+    devmaster.vm.host_name = "devmaster"
+    devmaster.vm.network "private_network", ip: "192.168.200.11"
+    devmaster.vbguest.auto_update = true
+
+    devmaster.vm.synced_folder "files/salt/dev/", "/srv/salt"
+    devmaster.vm.synced_folder "files/pillar/dev/", "/srv/pillar"
+    devmaster.vm.synced_folder "files/formulas/", "/srv/formulas"
+
+
+    devmaster.vm.provision :salt do |salt|
+      salt.minion_config = "files/etc/minions/dev-minion"
+      salt.master_config = "files/etc/sub-masters/master"
+      salt.minion_key = "files/keys/devmaster.pem"
+      salt.minion_pub = "files/keys/devmaster.pub"
+      salt.install_master = true
+      salt.install_syndic = true
+      salt.install_type = "stable"
+      salt.verbose = true
+      salt.colorize = true
+      salt.seed_master = {
+        "devminion1" => "files/keys/devminion1.pub",
+        "devmaster" => "files/keys/devmaster.pub"
+      }
+      salt.run_highstate = true
+      salt.install_args = "2017.7"
+    end
+  end
+
+
+  # Configure prodmaster
+  config.vm.define "prodmaster", autostart: true do |prodmaster|
+
+    prodmaster.vm.boot_timeout = 120
+    prodmaster.vm.box = "debian/stretch64"
+    prodmaster.vm.box_version = "9.3.0"
+    prodmaster.vm.host_name = "prodmaster"
+    prodmaster.vm.network "private_network", ip: "192.168.200.12"
+    prodmaster.vbguest.auto_update = true
+
+    prodmaster.vm.synced_folder "files/salt/prod/", "/srv/salt"
+    prodmaster.vm.synced_folder "files/pillar/prod/", "/srv/pillar"
+    prodmaster.vm.synced_folder "files/formulas/", "/srv/formulas"
+
+
+    prodmaster.vm.provision :salt do |salt|
+      salt.minion_config = "files/etc/minions/prod-minion"
+      salt.master_config = "files/etc/sub-masters/master"
+      salt.minion_key = "files/keys/prodmaster.pem"
+      salt.minion_pub = "files/keys/prodmaster.pub"
+      salt.install_master = true
+      salt.install_syndic = true
+      salt.install_type = "stable"
+      salt.verbose = true
+      salt.colorize = true
+      salt.seed_master = {
+        "prodminion1" => "files/keys/prodminion1.pub",
+        "prodmaster" => "files/keys/prodmaster.pub"
+      }
+      salt.run_highstate = true
+      salt.install_args = "2017.7"
+    end
+  end
+
+  # Configure devminion1
+  config.vm.define "devminion1", autostart: true do |devminion1|
+    devminion1.vm.boot_timeout = 60
+    devminion1.vm.box = "debian/stretch64"
+    devminion1.vm.box_version = "9.3.0"
+    devminion1.vm.host_name = "devminion1"
+    devminion1.vm.network "private_network", ip: "192.168.200.13"
+    devminion1.vbguest.auto_update = true
+
+    devminion1.vm.provision :salt do |salt|
+      salt.minion_config = "files/etc/minions/dev-minion"
+      salt.minion_key = "files/keys/devminion1.pem"
+      salt.minion_pub = "files/keys/devminion1.pub"
+
+      salt.install_type = "stable"
+      salt.verbose = true
+      salt.colorize = true
+
+      salt.run_highstate = true
+      salt.install_args = "2017.7"
+    end
+  end
+
+  # Configure prodminion1
+  config.vm.define "prodminion1", autostart: true do |prodminion1|
+    prodminion1.vm.boot_timeout = 60
+    prodminion1.vm.box = "debian/stretch64"
+    prodminion1.vm.box_version = "9.3.0"
+    prodminion1.vm.host_name = "prodminion1"
+    prodminion1.vm.network "private_network", ip: "192.168.200.14"
+    prodminion1.vbguest.auto_update = true
+
+    prodminion1.vm.provision :salt do |salt|
+      salt.minion_config = "files/etc/minions/prod-minion"
+      salt.minion_key = "files/keys/prodminion1.pem"
+      salt.minion_pub = "files/keys/prodminion1.pub"
+
+      salt.install_type = "stable"
+      salt.verbose = true
+      salt.colorize = true
+
+      salt.run_highstate = true
+      salt.install_args = "2017.7"
+    end
+  end
+
+end
+
+
